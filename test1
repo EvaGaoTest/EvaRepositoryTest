@@ -1,0 +1,91 @@
+def create_trigger(
+    project,
+    bucket,
+    scan_period_days,
+    info_types,
+    trigger_id=None,
+    display_name=None,
+    description=None,
+    min_likelihood=None,
+    max_findings=None,
+    auto_populate_timespan=False,
+):
+    """Creates a scheduled Data Loss Prevention API inspect_content trigger.
+    Args:
+        project: The Google Cloud project id to use as a parent resource.
+        bucket: The name of the GCS bucket to scan. This sample scans all
+            files in the bucket using a wildcard.
+        scan_period_days: How often to repeat the scan, in days.
+            The minimum is 1 day.
+        info_types: A list of strings representing info types to look for.
+            A full list of info type categories can be fetched from the API.
+        trigger_id: The id of the trigger. If omitted, an id will be randomly
+            generated.
+        display_name: The optional display name of the trigger.
+        description: The optional description of the trigger.
+        min_likelihood: A string representing the minimum likelihood threshold
+            that constitutes a match. One of: 'LIKELIHOOD_UNSPECIFIED',
+            'VERY_UNLIKELY', 'UNLIKELY', 'POSSIBLE', 'LIKELY', 'VERY_LIKELY'.
+        max_findings: The maximum number of findings to report; 0 = no maximum.
+        auto_populate_timespan: Automatically populates time span config start
+            and end times in order to scan new content only.
+    Returns:
+        None; the response from the API is printed to the terminal.
+    """
+
+    # Import the client library
+    import google.cloud.dlp
+
+    # Instantiate a client.
+    dlp = google.cloud.dlp_v2.DlpServiceClient()
+
+    # Prepare info_types by converting the list of strings into a list of
+    # dictionaries (protos are also accepted).
+    info_types = [{"name": info_type} for info_type in info_types]
+
+    # Construct the configuration dictionary. Keys which are None may
+    # optionally be omitted entirely.
+    inspect_config = {
+        "info_types": info_types,
+        "min_likelihood": min_likelihood,
+        "limits": {"max_findings_per_request": max_findings},
+    }
+
+    # Construct a cloud_storage_options dictionary with the bucket's URL.
+    url = "gs://{}/*".format(bucket)
+    storage_config = {
+        "cloud_storage_options": {"file_set": {"url": url}},
+        # Time-based configuration for each storage object.
+        "timespan_config": {
+            # Auto-populate start and end times in order to scan new objects
+            # only.
+            "enable_auto_population_of_timespan_config": auto_populate_timespan
+        },
+    }
+
+    # Construct the job definition.
+    job = {"inspect_config": inspect_config, "storage_config": storage_config}
+
+    # Construct the schedule definition:
+    schedule = {
+        "recurrence_period_duration": {"seconds": scan_period_days * 60 * 60 * 24}
+    }
+
+    # Construct the trigger definition.
+    job_trigger = {
+        "inspect_job": job,
+        "display_name": display_name,
+        "description": description,
+        "triggers": [{"schedule": schedule}],
+        "status": google.cloud.dlp_v2.JobTrigger.Status.HEALTHY,
+    }
+
+    # Convert the project id into a full resource id.
+    parent = f"projects/{project}"
+
+    # Call the API.
+    response = dlp.create_job_trigger(
+        request={"parent": parent, "job_trigger": job_trigger, "trigger_id": trigger_id}
+    )
+
+    print("Successfully created trigger {}".format(response.name))
